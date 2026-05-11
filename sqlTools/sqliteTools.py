@@ -560,8 +560,11 @@ class sqliteMultiTool:
 
         Args:
             table_name (str): The name of the table.
-            row_data (dict): A dictionary where keys are column names and values are the data.
-                Example: {"name": "John", "age": 30}
+            row_data: The data to insert (dict, JSON string, or list of 'column = value' strings).
+                Examples:
+                - Dict: {"name": "John", "age": 30}
+                - JSON: '{"name": "John", "age": 30}'
+                - List: ["name = 'John'", "age = 30"]
 
         Returns:
             bool: True if row was added successfully.
@@ -570,16 +573,19 @@ class sqliteMultiTool:
             ValueError: If the operation fails.
         """
         try:
-            if not table_name or not isinstance(row_data, dict):
-                raise ValueError("Table name must be provided and row_data must be a dictionary.")
+            if not table_name:
+                raise ValueError("Table name cannot be empty.")
 
-            if not row_data:
+            # Standardize row_data
+            standardized_data = self._standardize_update_data(row_data)
+
+            if not standardized_data:
                 raise ValueError("row_data cannot be empty.")
 
             # Build INSERT query
-            columns = ", ".join(row_data.keys())
-            placeholders = ", ".join(["?" for _ in row_data.values()])
-            values = list(row_data.values())
+            columns = ", ".join(standardized_data.keys())
+            placeholders = ", ".join(["?" for _ in standardized_data.values()])
+            values = list(standardized_data.values())
 
             query = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders});"
 
