@@ -56,6 +56,59 @@ class sqliteMultiTool:
 
         return normalized_path
 
+    def _standardize_update_data(self, update_data):
+        """
+        Standardizes the update_data input to a dictionary.
+
+        Args:
+            update_data: The input update data (dict, JSON string, or list of 'column = value' strings).
+                Examples:
+                - Dict: {"name": "John", "age": 30}
+                - JSON: '{"name": "John", "age": 30}'
+                - List: ["name = 'John'", "age = 30"]
+
+        Returns:
+            dict: A standardized dictionary of column: value pairs.
+
+        Raises:
+            ValueError: If the input cannot be converted.
+        """
+        def parse_update_list(lst):
+            d = {}
+            for item in lst:
+                if not isinstance(item, str):
+                    raise ValueError("List items must be strings in 'column = value' format.")
+                if ' = ' not in item:
+                    raise ValueError("List items must be in 'column = value' format.")
+                key, value_str = item.split(' = ', 1)
+                key = key.strip()
+                value_str = value_str.strip()
+                # Parse value: remove quotes if present, or convert numbers
+                if (value_str.startswith("'") and value_str.endswith("'")) or (value_str.startswith('"') and value_str.endswith('"')):
+                    value = value_str[1:-1]
+                elif value_str.isdigit():
+                    value = int(value_str)
+                elif value_str.replace('.', '', 1).isdigit() and '.' in value_str:
+                    value = float(value_str)
+                else:
+                    value = value_str  # keep as string
+                d[key] = value
+            return d
+
+        try:
+            if isinstance(update_data, dict):
+                return update_data
+            elif isinstance(update_data, str):
+                return json.loads(update_data)
+            elif isinstance(update_data, list):
+                return parse_update_list(update_data)
+            else:
+                raise ValueError("update_data must be a dict, JSON string, or list of 'column = value' strings.")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON string for update_data: {e}")
+        except Exception as e:
+            raise ValueError(f"Error standardizing update_data: {e}")
+
     def execute_query(self, query):
         try:
             conn = sqlite3.connect(self.db_path)
@@ -540,13 +593,14 @@ class sqliteMultiTool:
         except sqlite3.Error as e:
             raise ValueError(f"Error adding row to table '{table_name}': {e}")
 
-    def remove_row(self, table_name, id_value):
+    def remove_row(self, table_name, id_value, id_column='id'):
         """
-        Removes a row from a table by primary key ID.
+        Removes a row from a table by the specified ID column.
 
         Args:
             table_name (str): The name of the table.
-            id_value: The value of the primary key (id) to delete.
+            id_value: The value of the ID to delete.
+            id_column (str, optional): The name of the ID column. Defaults to 'id'.
 
         Returns:
             bool: True if row was removed successfully.
@@ -555,10 +609,10 @@ class sqliteMultiTool:
             ValueError: If the operation fails.
         """
         try:
-            if not table_name or id_value is None:
-                raise ValueError("Table name and id_value cannot be empty.")
+            if not table_name or id_value is None or not id_column:
+                raise ValueError("Table name, id_value, and id_column cannot be empty.")
 
-            query = f"DELETE FROM {table_name} WHERE id = ?;"
+            query = f"DELETE FROM {table_name} WHERE {id_column} = ?;"
 
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -570,11 +624,63 @@ class sqliteMultiTool:
             conn.close()
 
             if rows_deleted == 0:
-                raise ValueError(f"No row found with id {id_value} in table '{table_name}'.")
+                raise ValueError(f"No row found with {id_column} = {id_value} in table '{table_name}'.")
 
             return True
         except sqlite3.Error as e:
             raise ValueError(f"Error removing row from table '{table_name}': {e}")
+
+    def update_row(self, table_name, id_value, update_data, id_column='id'):
+        """
+        Updates a row in a table by the specified ID column.
+
+        Args:
+            table_name (str): The name of the table.
+            id_value: The value of the ID to update.
+            update_data: The data to update (dict, JSON string, or list of 'column = value' strings).
+                Examples:
+                - Dict: {"name": "Jane", "age": 31}
+                - JSON: '{"name": "Jane", "age": 31}'
+                - List: ["name = 'Jane'", "age = 31"]
+            id_column (str, optional): The name of the ID column. Defaults to 'id'.
+
+        Returns:
+            bool: True if row was updated successfully.
+
+        Raises:
+            ValueError: If the operation fails.
+        """
+        try:
+            if not table_name or id_value is None or not id_column:
+                raise ValueError("Table name, id_value, and id_column cannot be empty.")
+
+            # Standardize update_data
+            standardized_data = self._standardize_update_data(update_data)
+
+            if not standardized_data:
+                raise ValueError("update_data cannot be empty.")
+
+            # Build UPDATE query
+            set_clause = ", ".join([f"{col} = ?" for col in standardized_data.keys()])
+            values = list(standardized_data.values()) + [id_value]
+
+            query = f"UPDATE {table_name} SET {set_clause} WHERE {id_column} = ?;"
+
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(query, values)
+            conn.commit()
+            
+            # Check if row was actually updated
+            rows_updated = cursor.rowcount
+            conn.close()
+
+            if rows_updated == 0:
+                raise ValueError(f"No row found with {id_column} = {id_value} in table '{table_name}'.")
+
+            return True
+        except sqlite3.Error as e:
+            raise ValueError(f"Error updating row in table '{table_name}': {e}")
 
 
 
