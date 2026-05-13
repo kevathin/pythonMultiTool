@@ -180,6 +180,27 @@ class sqliteMultiTool:
         self.db_path = full_path
         return self.db_path
 
+    def delete_database(self):
+        """
+        Deletes the current database file and resets db_path to None.
+
+        Returns:
+            bool: True if the database file was deleted or did not exist.
+
+        Raises:
+            ValueError: If deletion fails or db_path is not set.
+        """
+        if not self.db_path:
+            raise ValueError("No database path set to delete.")
+
+        try:
+            if os.path.exists(self.db_path):
+                os.remove(self.db_path)
+            self.db_path = None
+            return True
+        except Exception as e:
+            raise ValueError(f"Error deleting database file: {e}")
+
     def get_table_names(self):
         """
         Retrieves the names of all tables in the current database.
@@ -343,13 +364,17 @@ class sqliteMultiTool:
                 elif keyword == "where":
                     d["where"] = value
                 elif keyword == "group":
-                    if len(parts) > 2 and parts[1].lower() == "by":
-                        d["group_by"] = " ".join(parts[2:])
+                    if len(parts) > 1 and parts[1].lower().startswith("by"):
+                        d["group_by"] = parts[1][2:].strip()
+                        if not d["group_by"]:
+                            raise ValueError("Invalid GROUP BY clause.")
                     else:
                         raise ValueError("Invalid GROUP BY clause.")
                 elif keyword == "order":
-                    if len(parts) > 2 and parts[1].lower() == "by":
-                        d["order_by"] = " ".join(parts[2:])
+                    if len(parts) > 1 and parts[1].lower().startswith("by"):
+                        d["order_by"] = parts[1][2:].strip()
+                        if not d["order_by"]:
+                            raise ValueError("Invalid ORDER BY clause.")
                     else:
                         raise ValueError("Invalid ORDER BY clause.")
                 else:
